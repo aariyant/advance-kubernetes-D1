@@ -1,0 +1,55 @@
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: 192.168.51.101
+  bindPort: 6443
+nodeRegistration:
+  name: kubemaster01
+---
+apiServer:
+  certSANs:
+  - kubemaster01
+  - kubemaster02
+  - kubemaster03
+  - kubelb
+  - 192.168.51.100
+  - 192.168.51.101
+  - 192.168.51.102
+  - 192.168.51.103
+apiVersion: kubeadm.k8s.io/v1beta4
+caCertificateValidityPeriod: 87600h0m0s
+certificateValidityPeriod: 8760h0m0s
+certificatesDir: /etc/kubernetes/pki
+clusterName: kubernetes
+controlPlaneEndpoint: 192.168.51.100:6443
+controllerManager: {}
+dns: {}
+encryptionAlgorithm: RSA-2048
+etcd:
+  local:
+    dataDir: /var/lib/etcd
+    serverCertSANs:
+    - kubemaster01
+    - kubemaster02
+    - kubemaster03
+    - 192.168.51.100
+    - 192.168.51.101
+    - 192.168.51.102
+    - 192.168.51.103
+    peerCertSANs:
+    - kubemaster01
+    - kubemaster02
+    - kubemaster03
+    - 192.168.51.100
+    - 192.168.51.101
+    - 192.168.51.102
+    - 192.168.51.103
+imageRepository: registry.k8s.io
+kind: ClusterConfiguration
+kubernetesVersion: v1.32.5
+networking:
+  dnsDomain: cluster.local
+  podSubnet: 10.0.0.0/16
+  serviceSubnet: 10.96.0.0/12
+proxy: {}
+scheduler: {}
