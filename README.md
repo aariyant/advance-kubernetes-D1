@@ -6,12 +6,22 @@ This guide provides step-by-step instructions for setting up a High Availability
 In this topology, the `etcd` members are co-located on the same nodes as the control plane components. Each control plane node runs an instance of `kube-apiserver`, `kube-scheduler`, `kube-controller-manager`, and `etcd`.
 
 - **Nodes**:
-    - `kubelb`: Load Balancer (HAProxy) - `192.168.56.10`
-    - `kubemaster01`: Control Plane 1 - `192.168.56.11`
-    - `kubemaster02`: Control Plane 2 - `192.168.56.12`
-    - `kubemaster03`: Control Plane 3 - `192.168.56.13`
-    - `kubenode01`: Worker Node 1 - `192.168.56.21`
-    - `kubenode02`: Worker Node 2 - `192.168.56.22`
+    - `kubelb`: Load Balancer (HAProxy) - `192.168.56.100`
+    - `kubemaster01`: Control Plane 1 - `192.168.56.101`
+    - `kubemaster02`: Control Plane 2 - `192.168.56.102`
+    - `kubemaster03`: Control Plane 3 - `192.168.56.103`
+    - `kubenode01`: Worker Node 1 - `192.168.56.111`
+    - `kubenode02`: Worker Node 2 - `192.168.56.112`
+- **Specification**:
+
+| Role          | Host Name      | IP            | OS            | RAM   | CPU |
+|---------------|----------------|---------------|---------------|-------|-----|
+| Load Balancer | kubelb         | 192.168.56.100 | Rocky Linux 9 | 1G    | 2   |
+| Control Plane | kubemaster01   | 192.168.56.101 | Rocky Linux 9 | 2G    | 2   |
+| Control Plane | kubemaster02   | 192.168.56.102 | Rocky Linux 9 | 2G    | 2   |
+| Control Plane | kubemaster03   | 192.168.56.103 | Rocky Linux 9 | 2G    | 2   |
+| Worker        | kubenode01     | 192.168.56.111 | Rocky Linux 9 | 2G    | 2   |
+| Worker        | kubenode02     | 192.168.56.112 | Rocky Linux 9 | 2G    | 2   |
 
 ---
 

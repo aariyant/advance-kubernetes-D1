@@ -2,8 +2,10 @@
 
 # Source: https://kubernetes.io/docs/reference/setup-tools/kubeadm
 KUBE_VERSION=1.32.5
+HAPROXY_IP=$2
+short_hostname=$1
 
-set -e
+set -ex
 
 ### Verify Rocky Linux version
 if [ -f /etc/os-release ]; then
@@ -31,11 +33,10 @@ else
 fi
 
 ### set hostname
-short_hostname=$(hostname | cut -d. -f1)
 hostnamectl set-hostname "$short_hostname"
 
 ### setup terminal and base tools
-dnf install -y bash-completion binutils vim-enhanced curl wget
+dnf install -y bash-completion binutils vim-enhanced curl wget epel-release
 echo 'colorscheme ron' >> ~/.vimrc
 echo 'set tabstop=2' >> ~/.vimrc
 echo 'set shiftwidth=2' >> ~/.vimrc
@@ -77,8 +78,15 @@ gpgcheck=1
 gpgkey=https://pkgs.k8s.io/core:/stable:/v1.32/rpm/repodata/repomd.xml.key
 EOF
 
+sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+
 dnf makecache
 dnf install -y containerd.io kubelet kubeadm kubectl --disableexcludes=kubernetes
+
+### Install Nerdctl
+wget https://github.com/containerd/nerdctl/releases/download/v2.2.1/nerdctl-2.2.1-linux-${PLATFORM_ARCH}.tar.gz
+sudo tar Cxzvvf /usr/bin nerdctl-2.2.1-linux-${PLATFORM_ARCH}.tar.gz
+echo "source <(nerdctl completion bash)" >> ~/.bashrc
 
 ### Load Kernel Modules for Containerd
 cat <<EOF | sudo tee /etc/modules-load.d/containerd.conf
@@ -121,14 +129,18 @@ systemctl enable --now kubelet
 
 ### Init K8s
 rm -rf /root/.kube/config || true
-kubeadm init --kubernetes-version=${KUBE_VERSION} --ignore-preflight-errors=NumCPU --skip-token-print --pod-network-cidr 192.168.0.0/16
+kubeadm init --kubernetes-version=${KUBE_VERSION} --control-plane-endpoint=${HAPROXY_IP}:6443 --ignore-preflight-errors=NumCPU --skip-token-print --pod-network-cidr 10.0.0.0/16
 
 mkdir -p ~/.kube
 sudo cp -i /etc/kubernetes/admin.conf ~/.kube/config
 chown $(id -u):$(id -g) ~/.kube/config
 
 ### CNI (Using standard Flannel as Weave is legacy, but kept your link)
-kubectl apply -f https://raw.githubusercontent.com/killer-sh/cks-course-environment/master/cluster-setup/weave.yaml
+if [ $PLATFORM_ARCH == "arm64" ]; then
+  kubectl apply -f https://raw.githubusercontent.com/killer-sh/cks-course-environment/master/cluster-setup/weave.yaml
+else
+  kubectl apply -f https://raw.githubusercontent.com/killer-sh/cks-course-environment/master/cluster-setup/weave.yaml
+fi
 
 echo "Waiting for network to be ready..."
 sleep 15

@@ -84,56 +84,52 @@ sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/dock
 dnf makecache
 dnf install -y containerd.io kubelet kubeadm kubectl --disableexcludes=kubernetes
 
+systemctl enable --now containerd
+systemctl start containerd
+
 ### Install Nerdctl
 wget https://github.com/containerd/nerdctl/releases/download/v2.2.1/nerdctl-2.2.1-linux-${ARCH}.tar.gz
 sudo tar Cxzvvf /usr/bin nerdctl-2.2.1-linux-${ARCH}.tar.gz
 echo "source <(nerdctl completion bash)" >> ~/.bashrc
 
-### Configure Containerd modules
-cat <<EOF | sudo tee /etc/modules-load.d/containerd.conf
-overlay
-br_netfilter
-EOF
-sudo modprobe overlay
-sudo modprobe br_netfilter
+### Configure Haproxy
+mkdir -p haproxy && cd haproxy
+cat <<EOF | sudo tee haproxy.cfg
+frontend kubernetes-frontend
+    bind *:6443
+    mode tcp
+    option tcplog
+    default_backend kubernetes-backend
 
-### Network sysctl settings
-cat <<EOF | sudo tee /etc/sysctl.d/99-kubernetes-cri.conf
-net.bridge.bridge-nf-call-iptables  = 1
-net.ipv4.ip_forward                 = 1
-net.bridge.bridge-nf-call-ip6tables = 1
-EOF
-sudo sysctl --system
+frontend stats
+    mode http
+    bind :8404
+    stats enable
+    stats refresh 10s
+    stats uri /stats
+    stats show-modules
 
-### Containerd Config
-mkdir -p /etc/containerd
-containerd config default | sudo tee /etc/containerd/config.toml
-# Ensure SystemdCgroup is enabled for Rocky Linux stability
-sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
-
-### crictl config
-cat <<EOF | sudo tee /etc/crictl.yaml
-runtime-endpoint: unix:///run/containerd/containerd.sock
-image-endpoint: unix:///run/containerd/containerd.sock
+backend kubernetes-backend
+    mode tcp
+    option tcp-check
+    balance roundrobin
+    server kubemaster01 192.168.51.101:6443 check
+    server kubemaster02 192.168.51.102:6443 check
+    server kubemaster03 192.168.51.103:6443 check
 EOF
 
-### Disable Firewalld (Commonly blocks node communication)
-systemctl stop firewalld || true
-systemctl disable firewalld || true
+### Create compose
+cat <<EOF | sudo tee docker-compose.yml
+version: '3.8'
+services:
+  haproxy:
+    image: haproxy:latest
+    ports:
+      - "6443:6443"
+      - "8404:8404"
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg
+EOF
 
-### Start services
-systemctl daemon-reload
-systemctl enable --now containerd
-systemctl enable --now kubelet
-
-### Final Cleanup before joining
-kubeadm reset -f
-systemctl daemon-reload
-systemctl restart kubelet
-
-echo
-echo "------------------------------------------------------------"
-echo "DONE! Your Rocky Linux node is ready."
-echo "EXECUTE ON MASTER: kubeadm token create --print-join-command --ttl 0"
-echo "THEN RUN THE OUTPUT AS A COMMAND HERE TO JOIN THE CLUSTER"
-echo "------------------------------------------------------------"
+### Start compose
+nerdctl compose up -d
