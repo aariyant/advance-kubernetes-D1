@@ -246,63 +246,86 @@ kubenode02     Ready    <none>          5m      v1.31.0
 
 While HAProxy handles the Control Plane HA, **MetalLB** is used to provide `Type: LoadBalancer` support for your applications running *inside* the cluster.
 
-### Install MetalLB
-Run these commands from your control plane node:
+* __Install MetalLB__
+Run these commands from your control plane node or any node with kubectl installed:
 
-```shell
-# 1. Update your kube-proxy configuration to enable ARP
-kubectl edit configmap -n kube-system kube-proxy
-# Set: strictARP: true
+  * __Update kube-proxy configuration__
+    ```shell
+    kubectl edit configmap -n kube-system kube-proxy
+    ```
+    find and change this value:
+    ```yaml
+    apiVersion: v1
+    data:
+      config.conf: |-
+        mode: ipvs
+        strictARP: true
+    ```
 
-# 2. Deploy MetalLB
-kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.8/config/manifests/metallb-native.yaml
-```
+  * __Deploy MetalLB__
+    ```shell
+    kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.8/config/manifests/metallb-native.yaml
+    ```
 
-### Configure IP Address Pool
+* __Configure IP Address Pool__
 Create `metallb-config.yaml` to define the range of IPs MetalLB can assign to services. Use IPs that are in your `192.168.56.x` range but not used by your VMs.
 
-```yaml
-apiVersion: metallb.io/v1beta1
-kind: IPAddressPool
-metadata:
-  name: first-pool
-  namespace: metallb-system
-spec:
-  addresses:
-  - 192.168.56.100-192.168.56.200
----
-apiVersion: metallb.io/v1beta1
-kind: L2Advertisement
-metadata:
-  name: layer2-adv
-  namespace: metallb-system
-```
+  ```yaml
+  apiVersion: metallb.io/v1beta1
+  kind: IPAddressPool
+  metadata:
+    name: intranet
+    namespace: metallb-system
+  spec:
+    addresses:
+      - 192.168.56.10-192.168.56.99
+    avoidBuggyIPs: true
+  ---
+  apiVersion: metallb.io/v1beta1
+  kind: L2Advertisement
+  metadata:
+    name: layer2-intranet
+    namespace: metallb-system
+  spec:
+    ipAddressPools:
+      - intranet
+  ```
 
-Apply the config:
-```shell
-kubectl apply -f metallb-config.yaml
-```
+  Apply the config:
+  ```shell
+  kubectl apply -f metallb-config.yaml
+  ```
 
-### Verify with an Nginx Service
+* __Verify with an Nginx Service__
 Deploy a sample application and expose it via MetalLB:
 
-```shell
-kubectl create deployment nginx --image=nginx
-kubectl expose deployment nginx --port=80 --type=LoadBalancer
-```
+  ```shell
+  kubectl create deployment nginx --image=nginx
+  kubectl expose deployment nginx --port=80 --type=LoadBalancer
+  ```
 
-Check the external IP:
-```shell
-kubectl get svc
-```
+  Check the external IP:
+  ```shell
+  kubectl get svc
+  ```
 
-Expected output:
-```text
-NAME         TYPE           CLUSTER-IP      EXTERNAL-IP      PORT(S)        AGE
-nginx        LoadBalancer   10.103.1.200    192.168.56.100   80:32145/TCP   10s
-```
+  Expected output:
+  ```text
+  NAME         TYPE           CLUSTER-IP      EXTERNAL-IP      PORT(S)        AGE
+  nginx        LoadBalancer   10.103.1.200    192.168.56.100   80:32145/TCP   10s
+  ```
 
-You should now be able to access Nginx from your host machine at `http://192.168.56.100`.
+  You should now be able to access Nginx from your host machine at `http://192.168.56.100`.
+
+* __Best Practices__
+  - **Use meaningful pool names**: Name pools based on their purpose (e.g., `production-external`, `internal-services`)
+  - **Disable auto-assign for production**: Require explicit pool selection for critical workloads
+  - **Document IP ranges**: Maintain documentation of which IP ranges are used for what purpose
+  - **Plan for growth**: Allocate larger ranges than immediately needed to avoid reconfiguration
+  - **Use selectors**: Implement namespace and service selectors to prevent accidental IP allocation
+  - **Monitor utilization**: Regularly check pool usage to avoid exhaustion
+  - **Separate internal and external**: Use different pools for internal and external-facing services
+  - **Test in non-production**: Validate pool configurations in development before production deployment
 
 ---
 # Resources, Limits, and Quotas

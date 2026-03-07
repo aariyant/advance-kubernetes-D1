@@ -44,7 +44,7 @@ minimal_setup(){
   fi
 
   ### set hostname
-  sed -i "/^127.0.0.1/s/$/ $short_hostname/" "/etc/hosts"
+  sed -i "/^127.0.0.1/s/$/ $short_hostname/" "/etc/hosts" || true
   hostnamectl set-hostname "$short_hostname"
 
   ### Kubernetes Repository Configuration
@@ -135,6 +135,7 @@ EOF
   containerd config default | sudo tee /etc/containerd/config.toml
   # Set SystemdCgroup to true (Critical for RHEL/Rocky)
   sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
+  sudo sed -i 's/disabled_plugins = \[\]/enabled_plugins = \["cri"\]/g' /etc/containerd/config.toml
 
   ### crictl config
   cat <<EOF | sudo tee /etc/crictl.yaml
@@ -147,7 +148,9 @@ EOF
   ### Start services
   systemctl daemon-reload
   systemctl enable --now containerd
+  systemctl restart containerd
   systemctl enable --now kubelet
+  systemctl restart kubelet
 }
 
 init_cluster(){
@@ -159,7 +162,7 @@ init_cluster(){
   if [ -f kubeadm-config.yaml ]; then
     kubeadm init --config kubeadm-config.yaml --skip-token-print
   else
-    kubeadm init --kubernetes-version=${KUBE_VERSION} --control-plane-endpoint=${HAPROXY_IP}:6443 --ignore-preflight-errors=NumCPU --skip-token-print --pod-network-cidr 10.0.0.0/16 --apiserver-cert-extra-sans kubemaster01,kubemaster02,kubemaster03,kubelb
+    kubeadm init --kubernetes-version=${KUBE_VERSION} --control-plane-endpoint=${HAPROXY_IP}:6443 --ignore-preflight-errors=NumCPU --skip-token-print --pod-network-cidr 172.16.0.0/16 --apiserver-cert-extra-sans kubemaster01,kubemaster02,kubemaster03,kubelb
   fi
 
   mkdir -p ~/.kube
@@ -225,8 +228,8 @@ add_worker() {
 
   echo "### Joining as worker ###"
   join_command=$(kubeadm token create --print-join-command)
-  echo "sudo ${join_command}"
-  # ssh -o StrictHostKeyChecking=no "${new_node}" "sudo ${join_command}"
+  # echo "sudo ${join_command}"
+  ssh -o StrictHostKeyChecking=no "${new_node}" "sudo ${join_command}"
 }
 
 install_haproxy() {
@@ -257,9 +260,9 @@ backend kubernetes-backend
     mode tcp
     option tcp-check
     balance roundrobin
-    server kubemaster01 192.168.51.101:6443 check
-    server kubemaster02 192.168.51.102:6443 check
-    server kubemaster03 192.168.51.103:6443 check
+    server kubemaster01 192.168.131.101:6443 check
+    server kubemaster02 192.168.131.102:6443 check
+    server kubemaster03 192.168.131.103:6443 check
 EOF
 
   ### Create compose
