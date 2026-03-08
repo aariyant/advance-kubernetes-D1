@@ -1,0 +1,22 @@
+kind: Namespace
+metadata:
+  name: scheduling
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: scheduling-affinity-pod
+  namespace: scheduling
+spec:
+  containers:
+  - name: nginx
+    image: nginx
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: kubernetes.io/os
+            operator: In
+            values:
+            - linux

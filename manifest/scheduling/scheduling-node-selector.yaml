@@ -1,0 +1,15 @@
+kind: Namespace
+metadata:
+  name: scheduling
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: scheduling-node-selector
+  namespace: scheduling
+spec:
+  containers:
+  - name: nginx
+    image: nginx
+  nodeSelector:
+    disktype: ssd

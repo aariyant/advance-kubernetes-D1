@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: resource-quota-basic
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: resource-quota-basic
+  namespace: resource-quota-basic
+spec:
+  hard:
+    pods: "2"
+    requests.cpu: "500m"
+    requests.memory: "500Mi"
+    limits.cpu: "600m"
+    limits.memory: "600Mi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  namespace: resource-quota-basic
+  labels:
+    app: nginx
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx-container
+        image: nginx:latest
+        resources:
+          requests:
+            cpu: "250m"
+            memory: "250Mi"
+          limits:
+            cpu: "500m"
+            memory: "500Mi"

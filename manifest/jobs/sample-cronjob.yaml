@@ -1,0 +1,15 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: sample-cronjob
+spec:
+  schedule: "*/1 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: timer
+            image: busybox
+            command: ["sh", "-c", "date; echo 'Scheduled task running'"]
+          restartPolicy: OnFailure

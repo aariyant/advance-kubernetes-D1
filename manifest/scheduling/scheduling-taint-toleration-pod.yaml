@@ -1,0 +1,18 @@
+kind: Namespace
+metadata:
+  name: scheduling
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: scheduling-taint-toleration-pod
+  namespace: scheduling
+spec:
+  containers:
+  - name: nginx
+    image: nginx
+  tolerations:
+  - key: "env"
+    operator: "Equal"
+    value: "prod"
+    effect: "NoSchedule"

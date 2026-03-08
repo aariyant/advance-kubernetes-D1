@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autoscaling-vpa
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: autoscaling-vpa
+  template:
+    metadata:
+      labels:
+        app: autoscaling-vpa
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+        resources:
+          requests:
+            cpu: "25m"
+          limits:
+            cpu: "30m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: autoscaling-vpa
+  labels:
+    app: autoscaling-vpa
+spec:
+  ports:
+  - port: 80
+  selector:
+    app: autoscaling-vpa

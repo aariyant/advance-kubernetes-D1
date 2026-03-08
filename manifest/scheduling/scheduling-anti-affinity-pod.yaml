@@ -1,0 +1,23 @@
+kind: Namespace
+metadata:
+  name: scheduling
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: scheduling-anti-affinity-pod
+  namespace: scheduling
+spec:
+  containers:
+  - name: nginx
+    image: nginx
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: app
+            operator: In
+            values:
+            - store
+        topologyKey: "kubernetes.io/hostname"
