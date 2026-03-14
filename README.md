@@ -1072,3 +1072,6 @@ Cluster Autoscaler automatically adjusts the size of the Kubernetes cluster (add
 - Nodes in the cluster are underutilized for a period and their pods can be placed on other existing nodes.
 
 ---
+> [!TIP]
+> Always set resource `requests` and `limits` for your containers. Autoscalers (like HPA and VPA) rely on these values to make scaling decisions.
+---

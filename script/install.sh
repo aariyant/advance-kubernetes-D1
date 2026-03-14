@@ -8,10 +8,15 @@ set -e
 usage() {
   echo "Usage: $0 [mode] [args...]"
   echo "Modes:"
-  echo "  initial_cluster <hostname> <haproxy_ip>  Initialize a new cluster"
-  echo "  add_master <hostname> <node_ip>          Add a new master node"
-  echo "  add_worker <hostname> <node_ip>          Add a new worker node"
-  echo "  install_haproxy <hostname>               Enable HAProxy load balancer"
+  echo "  initial_cluster <hostname> <haproxy_ip> <node_ip> [sans...]  Initialize a new cluster"
+  echo "  add_master <hostname> <node_ip> [sans...]                    Add a new master node"
+  echo "  add_worker <hostname> <node_ip>                              Add a new worker node"
+  echo "  install_haproxy <hostname> [master_name:ip...]               Enable HAProxy load balancer"
+  echo ""
+  echo "Examples:"
+  echo "  $0 initial_cluster kubemaster01 192.168.51.100 192.168.51.101 kubemaster02 kubemaster03 kubelb 192.168.51.102 192.168.51.103"
+  echo "  $0 initial_cluster kubemaster01 192.168.51.100 192.168.51.101 kubemaster02,kubemaster03,kubelb,192.168.51.102,192.168.51.103"
+  echo "  $0 install_haproxy kubelb kubemaster01:192.168.131.101 kubemaster02:192.168.131.102 kubemaster03:192.168.131.103"
   exit 1
 }
 
@@ -154,16 +159,81 @@ EOF
 }
 
 init_cluster(){
-  local HAPROXY_IP=$1
+  local HOSTNAME=$1
+  local HAPROXY_IP=$2
+  local NODE_IP=$3
+  shift 3
+  local EXTRA_SANS=("$@")
+
   if [ -z "$HAPROXY_IP" ]; then echo "HAProxy IP required"; exit 1; fi
+  if [ -z "$NODE_IP" ]; then echo "Node IP required"; exit 1; fi
+
+  local SAN_LIST="  - ${HOSTNAME}
+  - ${HAPROXY_IP}
+  - ${NODE_IP}"
+  
+  for san in "${EXTRA_SANS[@]}"; do
+    IFS=',' read -ra S_ARR <<< "$san"
+    for s in "${S_ARR[@]}"; do
+      SAN_LIST="${SAN_LIST}
+  - ${s}"
+    done
+  done
+
+  local ETCD_SAN_LIST="    - ${HOSTNAME}
+    - ${HAPROXY_IP}
+    - ${NODE_IP}"
+    
+  for san in "${EXTRA_SANS[@]}"; do
+    IFS=',' read -ra S_ARR <<< "$san"
+    for s in "${S_ARR[@]}"; do
+      ETCD_SAN_LIST="${ETCD_SAN_LIST}
+    - ${s}"
+    done
+  done
+
+  cat <<EOF > kubeadm-config.yaml
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: ${NODE_IP}
+  bindPort: 6443
+nodeRegistration:
+  name: ${HOSTNAME}
+---
+apiServer:
+  certSANs:
+${SAN_LIST}
+apiVersion: kubeadm.k8s.io/v1beta4
+caCertificateValidityPeriod: 87600h0m0s
+certificateValidityPeriod: 8760h0m0s
+certificatesDir: /etc/kubernetes/pki
+clusterName: kubernetes
+controlPlaneEndpoint: ${HAPROXY_IP}:6443
+controllerManager: {}
+dns: {}
+encryptionAlgorithm: RSA-2048
+etcd:
+  local:
+    dataDir: /var/lib/etcd
+    serverCertSANs:
+${ETCD_SAN_LIST}
+    peerCertSANs:
+${ETCD_SAN_LIST}
+imageRepository: registry.k8s.io
+kind: ClusterConfiguration
+kubernetesVersion: v${KUBE_VERSION}
+networking:
+  dnsDomain: cluster.local
+  podSubnet: 10.0.0.0/16
+  serviceSubnet: 10.96.0.0/12
+proxy: {}
+scheduler: {}
+EOF
 
   ### Init K8s
   rm -rf /root/.kube/config || true
-  if [ -f kubeadm-config.yaml ]; then
-    kubeadm init --config kubeadm-config.yaml --skip-token-print
-  else
-    kubeadm init --kubernetes-version=${KUBE_VERSION} --control-plane-endpoint=${HAPROXY_IP}:6443 --ignore-preflight-errors=NumCPU --skip-token-print --pod-network-cidr 172.16.0.0/16 --apiserver-cert-extra-sans kubemaster01,kubemaster02,kubemaster03,kubelb
-  fi
+  kubeadm init --config kubeadm-config.yaml --skip-token-print
 
   mkdir -p ~/.kube
   sudo cp -i /etc/kubernetes/admin.conf ~/.kube/config
@@ -196,10 +266,46 @@ init_cluster(){
 add_master(){
   local new_hostname=$1
   local new_node=$2
+  shift 2
+  local EXTRA_SANS=("$@")
 
   if [ -z "$new_hostname" ] || [ -z "$new_node" ]; then usage; fi
 
   set -ex
+  
+  echo "### Updating SANs in kubeadm config map (if any) ###"
+  if [ ${#EXTRA_SANS[@]} -gt 0 ]; then
+    kubectl get configmap kubeadm-config -n kube-system -o yaml > /tmp/kubeadm-config.yaml
+    
+    # Process extra SANs to append
+    for san in "${EXTRA_SANS[@]}"; do
+      IFS=',' read -ra S_ARR <<< "$san"
+      for s in "${S_ARR[@]}"; do
+        # Add to certSANs if not exists
+        if ! grep -q "\- $s" /tmp/kubeadm-config.yaml; then
+          sed -i "/certSANs:/a\      - $s" /tmp/kubeadm-config.yaml
+          sed -i "/serverCertSANs:/a\        - $s" /tmp/kubeadm-config.yaml
+          sed -i "/peerCertSANs:/a\        - $s" /tmp/kubeadm-config.yaml
+        fi
+      done
+    done
+    
+    # Apply updated config map
+    kubectl apply -f /tmp/kubeadm-config.yaml
+    
+    # Regenerate certs on current master to include new SANs before uploading
+    kubeadm init phase certs apiserver --config /tmp/kubeadm-config.yaml
+    kubeadm init phase certs etcd-server --config /tmp/kubeadm-config.yaml
+    kubeadm init phase certs etcd-peer --config /tmp/kubeadm-config.yaml
+    
+    # Restart apiserver & etcd to apply new certs locally
+    docker rm -f $(docker ps -q -f 'name=k8s_kube-apiserver') || true
+    docker rm -f $(docker ps -q -f 'name=k8s_etcd') || true
+    crictl rm -f $(crictl ps -q --name kube-apiserver) || true
+    crictl rm -f $(crictl ps -q --name etcd) || true
+    sleep 5
+  fi
+
   echo "### Running initial_setup on ${new_node} ###"
   scp -o StrictHostKeyChecking=no "$0" "${new_node}:~/"
   scp -r /etc/kubernetes/pki "${new_node}:/tmp/"
@@ -234,10 +340,26 @@ add_worker() {
 
 install_haproxy() {
   local short_hostname=$1
+  shift
+  local MASTERS=("$@")
+
   if [ -z "$short_hostname" ]; then echo "Hostname required"; exit 1; fi
+  if [ ${#MASTERS[@]} -eq 0 ]; then echo "At least one master node (name:ip) is required"; exit 1; fi
 
   set -ex
   minimal_setup "$short_hostname"
+
+  ### Build HAProxy Backend Config
+  local BACKEND_SERVERS=""
+  for master in "${MASTERS[@]}"; do
+    IFS=':' read -r m_name m_ip <<< "$master"
+    if [ -z "$m_name" ] || [ -z "$m_ip" ]; then
+      echo "Invalid master format: $master. Expected name:ip"
+      exit 1
+    fi
+    BACKEND_SERVERS="${BACKEND_SERVERS}
+    server ${m_name} ${m_ip}:6443 check"
+  done
 
   ### Configure Haproxy
   mkdir -p haproxy && cd haproxy
@@ -259,10 +381,7 @@ frontend stats
 backend kubernetes-backend
     mode tcp
     option tcp-check
-    balance roundrobin
-    server kubemaster01 192.168.131.101:6443 check
-    server kubemaster02 192.168.131.102:6443 check
-    server kubemaster03 192.168.131.103:6443 check
+    balance roundrobin${BACKEND_SERVERS}
 EOF
 
   ### Create compose
@@ -271,6 +390,7 @@ version: '3.8'
 services:
   haproxy:
     image: haproxy:latest
+    restart: always
     ports:
       - "6443:6443"
       - "8404:8404"
@@ -291,21 +411,23 @@ case "$MODE" in
     initial_setup "$1"
     ;;
   initial_cluster)
-    echo "init $1 $2"
+    echo "init $1 $2 $3 ${@:4}"
+    if [ -z "$2" ]; then echo 'HAProxy IP required' && exit 1; fi
+    if [ -z "$3" ]; then echo 'Node IP required' && exit 1; fi
     initial_setup "$1"
-    init_cluster "$2"
+    init_cluster "$@"
     ;;
   add_master)
-    echo "add $1 $2"
-    add_master "$1" "$2"
+    echo "add $1 $2 ${@:3}"
+    add_master "$@"
     ;;
   add_worker)
     echo "add $1 $2"
     add_worker "$1" "$2"
     ;;
   install_haproxy)
-    echo "install haproxy"
-    install_haproxy "$1"
+    echo "install haproxy $1 ${@:2}"
+    install_haproxy "$@"
     ;;
   *)
     usage
