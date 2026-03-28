@@ -184,11 +184,6 @@ sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
 sudo chown $(id -u):$(id -g) $HOME/.kube/config
 ```
 
-### Install Weave Net CNI
-```shell
-kubectl apply -f https://raw.githubusercontent.com/killer-sh/cks-course-environment/master/cluster-setup/weave.yaml
-```
-
 ---
 
 ## 5. Joining Additional Control Plane Nodes
